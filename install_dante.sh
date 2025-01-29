@@ -2,21 +2,34 @@
 
 echo "🔄 Actualizando paquetes y preparando dependencias..."
 
-# Espera a que se liberen bloqueos de apt
+# Eliminar listas corruptas si existen
+sudo rm -rf /var/lib/apt/lists/*
+
+# Forzar actualización de paquetes y esperar desbloqueo
 while sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1; do sleep 1; done
 while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 1; done
 while sudo fuser /var/lib/apt/lists/lock >/dev/null 2>&1; do sleep 1; done
 
-# Forzar actualización de paquetes
+# Refrescar listas de paquetes
 sudo apt update --fix-missing && sudo apt upgrade -y
 
-# Reintentar instalación hasta 3 veces si falla
+# Intentar instalación hasta 3 veces
 for i in {1..3}; do
     echo "📦 Intento #$i de instalación de dependencias..."
-    sudo apt install -y gcc make libwrap0-dev libpam0g-dev libssl-dev wget tar && break
+    sudo apt install -y build-essential gcc make libwrap0-dev libpam0g-dev libssl-dev wget tar && break
     echo "❌ Falló la instalación, reintentando..."
     sleep 5
 done
+
+# Verificar que GCC se instaló correctamente
+if ! command -v gcc &> /dev/null; then
+    echo "🚨 Error: GCC no está instalado. Revisando repositorios..."
+    sudo apt install -y gcc
+    if ! command -v gcc &> /dev/null; then
+        echo "❌ Error crítico: No se pudo instalar GCC. Verifica la conexión de red y repositorios."
+        exit 1
+    fi
+fi
 
 echo "✅ Dependencias instaladas correctamente."
 
