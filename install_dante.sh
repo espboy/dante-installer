@@ -1,24 +1,41 @@
 #!/bin/bash
 
-# Detener el script si ocurre un error
-set -e
+echo "🔄 Actualizando paquetes y preparando dependencias..."
 
-echo "Actualizando paquetes y preparando dependencias..."
-sudo apt update && sudo apt install -y gcc make libwrap0-dev libpam0g-dev libssl-dev wget tar
+# Espera a que se liberen bloqueos de apt
+while sudo fuser /var/lib/dpkg/lock >/dev/null 2>&1; do sleep 1; done
+while sudo fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do sleep 1; done
+while sudo fuser /var/lib/apt/lists/lock >/dev/null 2>&1; do sleep 1; done
 
-echo "Descargando Dante SOCKS5..."
+# Forzar actualización de paquetes
+sudo apt update --fix-missing && sudo apt upgrade -y
+
+# Reintentar instalación hasta 3 veces si falla
+for i in {1..3}; do
+    echo "📦 Intento #$i de instalación de dependencias..."
+    sudo apt install -y gcc make libwrap0-dev libpam0g-dev libssl-dev wget tar && break
+    echo "❌ Falló la instalación, reintentando..."
+    sleep 5
+done
+
+echo "✅ Dependencias instaladas correctamente."
+
+# Descargar Dante
+echo "⬇️ Descargando Dante..."
 wget http://www.inet.no/dante/files/dante-1.4.2.tar.gz
 
-echo "Extrayendo archivos..."
+# Extraer y compilar Dante
+echo "📦 Extrayendo Dante..."
 tar -xvzf dante-1.4.2.tar.gz
 cd dante-1.4.2
 
-echo "Compilando e instalando Dante..."
+echo "⚙️ Configurando Dante..."
 ./configure
 make && sudo make install
 
-echo "Configurando Dante..."
-sudo bash -c 'cat > /etc/danted.conf' <<EOF
+# Configuración de Dante
+echo "📝 Configurando /etc/danted.conf..."
+sudo bash -c 'cat > /etc/danted.conf <<EOF
 logoutput: syslog
 internal: 0.0.0.0 port = 1080
 external: eth0
@@ -33,10 +50,11 @@ client pass {
 socks pass {
     from: 0.0.0.0/0 to: 0.0.0.0/0
 }
-EOF
+EOF'
 
-echo "Creando servicio de systemd..."
-sudo bash -c 'cat > /etc/systemd/system/danted.service' <<EOF
+# Crear servicio systemd para Dante
+echo "🛠️ Creando servicio de systemd para Dante..."
+sudo bash -c 'cat > /etc/systemd/system/danted.service <<EOF
 [Unit]
 Description=Dante SOCKS5 Server
 After=network.target
@@ -48,16 +66,17 @@ User=root
 
 [Install]
 WantedBy=multi-user.target
-EOF
+EOF'
 
-echo "Habilitando y arrancando el servicio..."
+# Reiniciar y habilitar Dante
+echo "🔄 Activando y reiniciando Dante..."
 sudo systemctl daemon-reload
 sudo systemctl enable danted
-sudo systemctl start danted
+sudo systemctl restart danted
 
-echo "Configurando el firewall..."
+# Configurar firewall
+echo "🛡️ Configurando firewall..."
 sudo ufw allow 1080/tcp
 sudo ufw reload
 
-echo "Dante SOCKS5 instalado y configurado con éxito."
-
+echo "✅ Instalación de Dante completada. Proxy SOCKS5 activo en el puerto 1080."
